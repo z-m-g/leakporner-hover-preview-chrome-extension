@@ -466,7 +466,7 @@
    * Find the closest article element
    */
   function findClosestArticle(target) {
-    return target.closest('.videos-list > article');
+    return target.closest('article.loop-video');
   }
 
   /**
@@ -508,18 +508,12 @@
     }, { passive: true });
 
     // Handle dynamic content with MutationObserver
-    const observer = new MutationObserver((mutations) => {
-      // Clear cache entries that might be stale if DOM changes significantly
-      // This is a simple approach; could be more sophisticated
+    const observer = new MutationObserver(() => {
+      // Event delegation handles new articles automatically
+      // Observer kept for potential cache invalidation if needed
     });
 
-    const videosLists = document.querySelectorAll('.videos-list');
-    videosLists.forEach(list => {
-      observer.observe(list, { childList: true, subtree: true });
-    });
-
-    // Also observe body for dynamically added videos-list containers
-    observer.observe(document.body, { childList: true, subtree: false });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   // Initialize when DOM is ready
