@@ -1,0 +1,31 @@
+.lp-trickplay-container {
+  position: absolute;
+  z-index: 100;
+  pointer-events: none;
+  background-color: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.lp-trickplay-overlay {
+  position: absolute;
+  background-color: #000;
+  border-radius: 4px;
+}
+
+.lp-trickplay-time {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  font-family: Arial, sans-serif;
+  padding: 3px 6px;
+  border-radius: 3px;
+  line-height: 1;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+}

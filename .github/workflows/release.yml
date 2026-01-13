@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'manifest.json'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from manifest
+        id: version
+        run: |
+          VERSION=$(grep '"version"' manifest.json | sed 's/.*: "\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create ZIP
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          zip -r leakporner-hover-preview-chrome-extension-v${{ steps.version.outputs.version }}.zip \
+            manifest.json \
+            background.js \
+            contentScript.js \
+            contentStyles.css \
+            icon16.png \
+            icon48.png \
+            icon128.png \
+            README.md \
+            LICENSE
+
+      - name: Create Tag and Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: leakporner-hover-preview-chrome-extension-v${{ steps.version.outputs.version }}.zip
+          generate_release_notes: true

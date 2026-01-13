@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "LeakPorner Trickplay Preview",
+  "version": "1.0.4",
+  "description": "Adds video preview on hover for thumbnails on leakporner.com using sprite sheets",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://leakporner.com/*",
+        "https://*.leakporner.com/*"
+      ],
+      "js": ["contentScript.js"],
+      "css": ["contentStyles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://leakporner.com/*",
+    "https://*.leakporner.com/*"
+  ]
+}
