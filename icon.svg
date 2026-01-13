@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Green circle background matching leakporner's color -->
+  <circle cx="64" cy="64" r="64" fill="#3EB87B"/>
+
+  <!-- Film strip / frames representing scrubbing preview -->
+  <!-- Three frames showing progression -->
+  <rect x="18" y="40" width="28" height="48" rx="3" fill="white" opacity="0.5"/>
+  <rect x="50" y="40" width="28" height="48" rx="3" fill="white" opacity="0.75"/>
+  <rect x="82" y="40" width="28" height="48" rx="3" fill="white"/>
+
+  <!-- Play triangles inside frames (getting bigger = progression) -->
+  <path d="M28 58v12l8-6z" fill="#3EB87B" opacity="0.7"/>
+  <path d="M58 55v18l12-9z" fill="#3EB87B" opacity="0.85"/>
+  <path d="M90 52v24l16-12z" fill="#3EB87B"/>
+
+  <!-- Timeline/progress bar at bottom -->
+  <rect x="20" y="96" width="88" height="6" rx="3" fill="white" opacity="0.5"/>
+  <rect x="20" y="96" width="60" height="6" rx="3" fill="white"/>
+  <circle cx="80" cy="99" r="6" fill="white"/>
+</svg>
