@@ -57,6 +57,21 @@
   let currentAbortController = null;
   let rafId = null;
 
+  // User settings
+  let maxFrames = 100;
+
+  // Load user settings
+  chrome.storage.sync.get({ maxFrames: 100 }, (data) => {
+    maxFrames = data.maxFrames;
+  });
+
+  // Listen for setting changes
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.maxFrames) {
+      maxFrames = changes.maxFrames.newValue;
+    }
+  });
+
   /**
    * Parse embed URL and return sprite info if provider is supported
    */
@@ -306,7 +321,15 @@
     const overlay = container.querySelector('.lp-trickplay-overlay');
     if (!overlay) return;
 
-    const frameIndex = Math.floor(progress * (spriteInfo.frames - 1));
+    // Limit frames based on user setting
+    const effectiveFrames = Math.min(spriteInfo.frames, maxFrames);
+
+    // Calculate which frame to show (evenly distributed across sprite)
+    const targetFrame = Math.floor(progress * (effectiveFrames - 1));
+
+    // Map to actual frame index in the sprite (for cases where effectiveFrames < sprite.frames)
+    const frameIndex = Math.round(targetFrame * (spriteInfo.frames - 1) / (effectiveFrames - 1));
+
     const col = frameIndex % spriteInfo.cols;
     const row = Math.floor(frameIndex / spriteInfo.cols);
 
@@ -421,41 +444,51 @@
     const parentRect = positionParent.getBoundingClientRect();
     const totalDuration = getDuration(article);
 
-    // Start with the first (lowest quality) sprite for fast display
-    const firstSprite = candidates[0];
-    const firstRatioInfo = await loadSpriteRatioInfo(firstSprite);
+    // Try to find a working sprite, starting from lowest quality
+    let displayedSpriteIndex = -1;
+    let currentFrames = 0;
 
-    // Check again if we're still hovering the same article
-    if (currentArticle !== article) return;
+    for (let i = 0; i < candidates.length; i++) {
+      const sprite = candidates[i];
 
-    // Create and show overlay immediately with first sprite
-    const container = createOverlay(firstSprite, thumbnailRect, totalDuration, firstRatioInfo);
+      // Skip sprites if we already have enough frames for user's maxFrames setting
+      if (currentFrames >= maxFrames) break;
 
-    container.style.left = `${thumbnailRect.left - parentRect.left}px`;
-    container.style.top = `${thumbnailRect.top - parentRect.top}px`;
+      // Preload sprite image AND get ratio info in parallel
+      const [spriteLoaded, ratioInfo] = await Promise.all([
+        loadSpriteImage(sprite.spriteUrl),
+        loadSpriteRatioInfo(sprite)
+      ]);
 
-    positionParent.appendChild(container);
-    currentOverlay = container;
+      // Check if we're still hovering the same article
+      if (currentArticle !== article) return;
 
-    // Store sprite info and duration on container for mousemove handler
-    container._spriteInfo = firstSprite;
-    container._articleRect = article.getBoundingClientRect();
-    container._totalDuration = totalDuration;
+      // Skip if sprite failed to load (try next one)
+      if (!spriteLoaded) continue;
 
-    // If there are better sprites, load them in background and upgrade
-    if (candidates.length > 1) {
-      // Load better sprites progressively (skip the first one we already loaded)
-      for (let i = 1; i < candidates.length; i++) {
-        const betterSprite = candidates[i];
+      // First working sprite: create and show overlay
+      if (displayedSpriteIndex === -1) {
+        const container = createOverlay(sprite, thumbnailRect, totalDuration, ratioInfo);
 
-        // Load the better sprite's ratio info
-        const betterRatioInfo = await loadSpriteRatioInfo(betterSprite);
+        container.style.left = `${thumbnailRect.left - parentRect.left}px`;
+        container.style.top = `${thumbnailRect.top - parentRect.top}px`;
 
-        // Check if we're still hovering the same article and overlay exists
-        if (currentArticle !== article || !currentOverlay) return;
+        positionParent.appendChild(container);
+        currentOverlay = container;
 
-        // Upgrade to better sprite
-        upgradeOverlay(currentOverlay, betterSprite, betterRatioInfo);
+        // Store sprite info and duration on container for mousemove handler
+        container._spriteInfo = sprite;
+        container._articleRect = article.getBoundingClientRect();
+        container._totalDuration = totalDuration;
+
+        displayedSpriteIndex = i;
+        currentFrames = sprite.frames;
+      } else {
+        // Better sprite loaded: upgrade overlay
+        if (currentOverlay) {
+          upgradeOverlay(currentOverlay, sprite, ratioInfo);
+          currentFrames = sprite.frames;
+        }
       }
     }
   }

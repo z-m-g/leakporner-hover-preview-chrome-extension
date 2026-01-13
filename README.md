@@ -34,12 +34,24 @@ When you hover over a video thumbnail on leakporner.com:
 
 ## Features
 
-- **100 Frame Preview**: Up to 100 frames for smooth scrubbing (with cdnstream/cdnvids)
+- **Up to 100 Frame Preview**: Smooth scrubbing with cdnstream/cdnvids providers
+- **Configurable Frame Count**: Adjust max frames via extension popup (10-100)
+- **Progressive Loading**: Shows preview quickly with low-res sprite, upgrades to better quality
 - **Time Indicator**: Shows current position and total duration (e.g., "3:25 / 7:50")
 - **Portrait Support**: Correctly displays portrait videos centered with black bars
 - **Caching**: Detail page results are cached in memory to avoid repeated fetches
 - **Infinite Scroll**: Works with dynamically loaded content
 - **Performance**: Frame updates are throttled using requestAnimationFrame
+
+## Settings
+
+Click the extension icon in your browser toolbar to open the settings popup.
+
+**Max frames in preview** (slider: 10-100)
+- Controls how many frames are used when scrubbing
+- Lower values = faster loading, less bandwidth
+- Higher values = smoother scrubbing experience
+- The extension won't load sprites with more frames than needed
 
 ## Supported Providers
 
@@ -59,6 +71,8 @@ The extension automatically selects the provider with the most frames for the be
 - `background.js` - Service worker for cross-origin fetches
 - `contentScript.js` - Main logic for sprite extraction and trickplay
 - `contentStyles.css` - Overlay styling
+- `popup.html` - Settings popup UI
+- `popup.js` - Settings popup logic
 
 ## Release
 
