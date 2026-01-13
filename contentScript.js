@@ -48,7 +48,7 @@
     }
   };
 
-  // Cache for detail page sprite info: Map<detailUrl, {spriteUrl, cols, rows, frames}>
+  // Cache for detail page sprite info: Map<detailUrl, Array of sprite candidates sorted by frames>
   const spriteCache = new Map();
 
   // Current hover state
@@ -102,9 +102,9 @@
   }
 
   /**
-   * Fetch detail page and extract best sprite candidate
+   * Fetch detail page and extract all sprite candidates sorted by frames (ascending)
    */
-  async function fetchSpriteInfo(detailUrl) {
+  async function fetchAllSpriteCandidates(detailUrl) {
     // Check cache first
     if (spriteCache.has(detailUrl)) {
       return spriteCache.get(detailUrl);
@@ -116,9 +116,10 @@
       const doc = parser.parseFromString(html, 'text/html');
 
       const embedSpans = doc.querySelectorAll('span.change-video[data-embed]');
-      if (!embedSpans.length) return null;
+      if (!embedSpans.length) return [];
 
-      let bestCandidate = null;
+      const candidates = [];
+      const seenProviders = new Set();
 
       for (const span of embedSpans) {
         const embedUrl = span.getAttribute('data-embed');
@@ -127,18 +128,20 @@
         const spriteInfo = parseEmbedUrl(embedUrl);
         if (!spriteInfo) continue;
 
-        if (!bestCandidate || spriteInfo.frames > bestCandidate.frames) {
-          bestCandidate = spriteInfo;
-        }
+        // Avoid duplicates from same provider
+        if (seenProviders.has(spriteInfo.provider)) continue;
+        seenProviders.add(spriteInfo.provider);
+
+        candidates.push(spriteInfo);
       }
 
-      if (bestCandidate) {
-        spriteCache.set(detailUrl, bestCandidate);
-      }
+      // Sort by frames ascending (lowest first for progressive loading)
+      candidates.sort((a, b) => a.frames - b.frames);
 
-      return bestCandidate;
+      spriteCache.set(detailUrl, candidates);
+      return candidates;
     } catch {
-      return null;
+      return [];
     }
   }
 
@@ -321,6 +324,56 @@
   }
 
   /**
+   * Upgrade overlay to use a better sprite
+   */
+  function upgradeOverlay(container, newSpriteInfo, frameDimensions) {
+    const overlay = container.querySelector('.lp-trickplay-overlay');
+    if (!overlay) return;
+
+    // Calculate new dimensions
+    const containerWidth = parseFloat(container.style.width);
+    const containerHeight = parseFloat(container.style.height);
+
+    const dims = frameDimensions
+      ? calculateOverlayDimensions(newSpriteInfo, frameDimensions, containerWidth, containerHeight)
+      : { overlayWidth: containerWidth, overlayHeight: containerHeight, offsetX: 0, offsetY: 0 };
+
+    // Update overlay with new sprite
+    overlay.style.width = `${dims.overlayWidth}px`;
+    overlay.style.height = `${dims.overlayHeight}px`;
+    overlay.style.left = `${dims.offsetX}px`;
+    overlay.style.top = `${dims.offsetY}px`;
+    overlay.style.backgroundImage = `url(${newSpriteInfo.spriteUrl})`;
+    overlay.style.backgroundSize = `${newSpriteInfo.cols * 100}% ${newSpriteInfo.rows * 100}%`;
+
+    // Update stored sprite info
+    container._spriteInfo = newSpriteInfo;
+  }
+
+  /**
+   * Load sprite ratio info (from preview or sprite itself)
+   */
+  async function loadSpriteRatioInfo(spriteInfo) {
+    if (spriteInfo.previewUrl) {
+      // Load preview image to get correct aspect ratio
+      const previewDimensions = await loadSpriteImage(spriteInfo.previewUrl);
+      if (previewDimensions) {
+        return {
+          width: (previewDimensions.width / spriteInfo.previewCols) * spriteInfo.cols,
+          height: (previewDimensions.height / spriteInfo.previewRows) * spriteInfo.rows
+        };
+      }
+    } else {
+      // Load sprite directly for aspect ratio
+      const spriteDimensions = await loadSpriteImage(spriteInfo.spriteUrl);
+      if (spriteDimensions) {
+        return spriteDimensions;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Handle mouse enter on article
    */
   async function handleMouseEnter(article) {
@@ -338,8 +391,9 @@
     const detailUrl = getDetailUrl(article);
     if (!detailUrl) return;
 
-    const spriteInfo = await fetchSpriteInfo(detailUrl, currentAbortController.signal);
-    if (!spriteInfo) return;
+    // Get all sprite candidates sorted by frames (ascending)
+    const candidates = await fetchAllSpriteCandidates(detailUrl);
+    if (!candidates.length) return;
 
     // Check if we're still hovering the same article
     if (currentArticle !== article) return;
@@ -367,36 +421,15 @@
     const parentRect = positionParent.getBoundingClientRect();
     const totalDuration = getDuration(article);
 
-    // Load image to get dimensions for aspect ratio calculation
-    // For providers with deformed sprites, use the preview image instead
-    let ratioInfo = null;
-    if (spriteInfo.previewUrl) {
-      // Load preview image to get correct aspect ratio
-      const previewDimensions = await loadSpriteImage(spriteInfo.previewUrl);
-      if (previewDimensions) {
-        // Calculate frame dimensions from preview (2x2 grid)
-        ratioInfo = {
-          width: previewDimensions.width / spriteInfo.previewCols,
-          height: previewDimensions.height / spriteInfo.previewRows
-        };
-      }
-    } else {
-      // Load sprite directly for aspect ratio
-      const spriteDimensions = await loadSpriteImage(spriteInfo.spriteUrl);
-      if (spriteDimensions) {
-        ratioInfo = {
-          width: spriteDimensions.width / spriteInfo.cols,
-          height: spriteDimensions.height / spriteInfo.rows
-        };
-      }
-    }
+    // Start with the first (lowest quality) sprite for fast display
+    const firstSprite = candidates[0];
+    const firstRatioInfo = await loadSpriteRatioInfo(firstSprite);
 
-    // Check again if we're still hovering the same article after image load
+    // Check again if we're still hovering the same article
     if (currentArticle !== article) return;
 
-    // Pass frame dimensions (not full sprite) for ratio calculation
-    const frameDimensions = ratioInfo ? { width: ratioInfo.width * spriteInfo.cols, height: ratioInfo.height * spriteInfo.rows } : null;
-    const container = createOverlay(spriteInfo, thumbnailRect, totalDuration, frameDimensions);
+    // Create and show overlay immediately with first sprite
+    const container = createOverlay(firstSprite, thumbnailRect, totalDuration, firstRatioInfo);
 
     container.style.left = `${thumbnailRect.left - parentRect.left}px`;
     container.style.top = `${thumbnailRect.top - parentRect.top}px`;
@@ -405,9 +438,26 @@
     currentOverlay = container;
 
     // Store sprite info and duration on container for mousemove handler
-    container._spriteInfo = spriteInfo;
+    container._spriteInfo = firstSprite;
     container._articleRect = article.getBoundingClientRect();
     container._totalDuration = totalDuration;
+
+    // If there are better sprites, load them in background and upgrade
+    if (candidates.length > 1) {
+      // Load better sprites progressively (skip the first one we already loaded)
+      for (let i = 1; i < candidates.length; i++) {
+        const betterSprite = candidates[i];
+
+        // Load the better sprite's ratio info
+        const betterRatioInfo = await loadSpriteRatioInfo(betterSprite);
+
+        // Check if we're still hovering the same article and overlay exists
+        if (currentArticle !== article || !currentOverlay) return;
+
+        // Upgrade to better sprite
+        upgradeOverlay(currentOverlay, betterSprite, betterRatioInfo);
+      }
+    }
   }
 
   /**
