@@ -17,7 +17,7 @@ Chrome Extension (Manifest V3) that adds video preview on hover for thumbnails o
 ### Option 2: Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lpp.git
+git clone https://github.com/z-m-g/leakporner-hover-preview-chrome-extension.git
 ```
 
 Then follow steps 3-7 from Option 1.
