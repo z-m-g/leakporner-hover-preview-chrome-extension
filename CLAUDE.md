@@ -23,11 +23,11 @@ From a data-embed URL, extract the provider and the ID:
 - Preview sprite URL: https://img.lulucdn.com/<id>_xt.jpg
 - Grid: 4 x 4 (16 frames)
 
-2) bysezoxexe
+2) bysezoxexe - DO NOT SUPPORT
 - Embed examples: https://bysezoxexe.com/e/f95h8ope2trt
-- ID: f95h8ope2trt
-- Preview sprite URL: https://img-place.com/<id>_xt.jpg
-- Grid: 4 x 4 (16 frames)
+- Sprites would come from img-place.com, but that host added anti-bot
+  protection that blocks the requests. Never load images from img-place.com
+  and do not re-add this provider.
 
 3) cdnstream
 - Embed examples: https://cdnstream.top/e/uc1i1srhtpbo
@@ -41,13 +41,25 @@ From a data-embed URL, extract the provider and the ID:
 - Preview sprite URL: https://pixibay.cc/<id>0000.jpg
 - Grid: 10 x 10 (100 frames)
 
-5) short.icu
+5) morencius (mirror of cdnvids)
+- Embed examples: https://morencius.com/embed/nijf07xzhvci
+- ID: nijf07xzhvci
+- Preview sprite URL: https://pixibay.cc/<id>0000.jpg (same host as cdnvids)
+- Grid: 10 x 10 (100 frames)
+
+6) hgcloud
+- Embed examples: https://hgcloud.to/e/lmydi3gz4ski
+- ID: lmydi3gz4ski
+- Preview sprite URL: https://huntrexus.com/<id>0000.jpg
+- Grid: 10 x 10 (100 frames)
+
+7) short.icu
 - Embed examples: https://short.icu/4of3bRPkZ
 - ID: 4of3bRPkZ
 - Preview sprite URL: https://img.freeimagecdn.net/image/<id>/0.jpg
 - Grid: 6 x 5 (30 frames)
 
-6) k.upns.live
+8) k.upns.live
 - Embed example: https://k.upns.live/#biy6de
 - ID: biy6de
 - NOTE: no preview image pattern provided; ignore this provider unless you can confidently derive a sprite URL from the same pattern as others (otherwise skip).
@@ -133,7 +145,7 @@ IMPLEMENTATION DETAILS
 - Candidate extraction:
   - querySelectorAll('span.change-video[data-embed]')
   - For each, parse URL:
-    - For lulustream/bysezoxexe/cdnstream: path contains /e/<id>
+    - For lulustream/cdnstream/hgcloud: path contains /e/<id>
     - For cdnvids: path contains /embed/<id>
     - For short.icu: path is /<id>
     - For upns: hash contains #<id> (ignore for now)
@@ -195,7 +207,15 @@ SUPPORTED PROVIDERS:
 - cdnvids (10x10 = 100 frames) - highest priority
   - Sprite: pixibay.cc/<id>0000.jpg (deformed)
   - Preview for ratio: pixibay.cc/<id>_xt.jpg (2x2, correct ratio)
+- morencius (10x10 = 100 frames) - highest priority
+  - Embed host: morencius.com/embed/<id> (mirror of cdnvids, same IDs)
+  - Sprite: pixibay.cc/<id>0000.jpg (deformed)
+  - Preview for ratio: pixibay.cc/<id>_xt.jpg (2x2, correct ratio)
+- hgcloud (10x10 = 100 frames) - highest priority
+  - Embed host: hgcloud.to/e/<id>
+  - Sprite: huntrexus.com/<id>0000.jpg (assumed deformed, same scheme)
+  - Preview for ratio: huntrexus.com/<id>_xt.jpg (2x2) - UNVERIFIED, see README
 - short.icu (6x5 = 30 frames) - medium priority
 - lulustream (4x4 = 16 frames) - lower priority
-- bysezoxexe (4x4 = 16 frames) - lower priority
+- bysezoxexe - NOT SUPPORTED (img-place.com blocks bots; never load from it)
 - k.upns.live - NOT SUPPORTED (no known sprite URL pattern)

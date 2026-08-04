@@ -59,11 +59,16 @@ Click the extension icon in your browser toolbar to open the settings popup.
 |----------|------|--------|----------|
 | cdnstream | 10x10 | 100 | Highest |
 | cdnvids | 10x10 | 100 | Highest |
+| morencius | 10x10 | 100 | Highest |
+| hgcloud | 10x10 | 100 | Highest |
 | short.icu | 6x5 | 30 | Medium |
 | lulustream | 4x4 | 16 | Lower |
-| bysezoxexe | 4x4 | 16 | Lower |
 
 The extension automatically selects the provider with the most frames for the best preview experience.
+
+`bysezoxexe` (sprites served from `img-place.com`) is not supported: that host
+added anti-bot protection that blocks the requests. Videos whose only embed is
+`bysezoxexe` simply show no preview.
 
 ## Files
 

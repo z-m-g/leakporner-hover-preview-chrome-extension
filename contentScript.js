@@ -10,13 +10,8 @@
       rows: 4,
       frames: 16
     },
-    bysezoxexe: {
-      pattern: /^https?:\/\/bysezoxexe\.com\/e\/([a-zA-Z0-9]+)/,
-      getSpriteUrl: (id) => `https://img-place.com/${id}_xt.jpg`,
-      cols: 4,
-      rows: 4,
-      frames: 16
-    },
+    // bysezoxexe (img-place.com) is intentionally not supported: the host added
+    // anti-bot protection that blocks these sprite requests. Do not re-add it.
     cdnstream: {
       pattern: /^https?:\/\/cdnstream\.top\/e\/([a-zA-Z0-9]+)/,
       getSpriteUrl: (id) => `https://pixoraa.cc/${id}0000.jpg`,
@@ -33,6 +28,29 @@
       getSpriteUrl: (id) => `https://pixibay.cc/${id}0000.jpg`,
       // The 10x10 sprite is stretched/deformed, use _xt.jpg to get correct aspect ratio
       getPreviewUrl: (id) => `https://pixibay.cc/${id}_xt.jpg`,
+      cols: 10,
+      rows: 10,
+      frames: 100,
+      previewCols: 2,
+      previewRows: 2
+    },
+    // Mirror of cdnvids: different embed host, same IDs and same pixibay.cc sprites.
+    morencius: {
+      pattern: /^https?:\/\/morencius\.com\/embed\/([a-zA-Z0-9]+)/,
+      getSpriteUrl: (id) => `https://pixibay.cc/${id}0000.jpg`,
+      getPreviewUrl: (id) => `https://pixibay.cc/${id}_xt.jpg`,
+      cols: 10,
+      rows: 10,
+      frames: 100,
+      previewCols: 2,
+      previewRows: 2
+    },
+    hgcloud: {
+      pattern: /^https?:\/\/hgcloud\.to\/e\/([a-zA-Z0-9]+)/,
+      getSpriteUrl: (id) => `https://huntrexus.com/${id}0000.jpg`,
+      // Same URL scheme as cdnstream/cdnvids, so assume the same deformed 10x10
+      // sprite and use _xt.jpg for the correct aspect ratio.
+      getPreviewUrl: (id) => `https://huntrexus.com/${id}_xt.jpg`,
       cols: 10,
       rows: 10,
       frames: 100,
