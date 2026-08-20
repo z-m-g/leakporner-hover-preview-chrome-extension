@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LeakPorner Trickplay Preview",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Adds video preview on hover for thumbnails on leakporner.com using sprite sheets",
   "icons": {
     "16": "icon16.png",
@@ -17,7 +17,8 @@
     }
   },
   "permissions": [
-    "storage"
+    "storage",
+    "declarativeNetRequestWithHostAccess"
   ],
   "background": {
     "service_worker": "background.js"
@@ -28,13 +29,27 @@
         "https://leakporner.com/*",
         "https://*.leakporner.com/*"
       ],
-      "js": ["contentScript.js"],
-      "css": ["contentStyles.css"],
+      "js": [
+        "contentScript.js"
+      ],
+      "css": [
+        "contentStyles.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "host_permissions": [
     "https://leakporner.com/*",
-    "https://*.leakporner.com/*"
-  ]
+    "https://*.leakporner.com/*",
+    "https://img.freeimagecdn.net/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "referer_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
 }

@@ -1,0 +1,21 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://abyssplayer.com/"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||img.freeimagecdn.net/",
+      "resourceTypes": ["image"],
+      "initiatorDomains": ["leakporner.com"]
+    }
+  }
+]

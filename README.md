@@ -36,10 +36,10 @@ When you hover over a video thumbnail on leakporner.com:
 
 - **Up to 100 Frame Preview**: Smooth scrubbing with cdnstream/cdnvids providers
 - **Configurable Frame Count**: Adjust max frames via extension popup (10-100)
-- **Progressive Loading**: Shows preview quickly with low-res sprite, upgrades to better quality
+- **Progressive Loading**: Every provider is probed in parallel; the first sprite to answer shows immediately and is upgraded when a richer one arrives
 - **Time Indicator**: Shows current position and total duration (e.g., "3:25 / 7:50")
 - **Portrait Support**: Correctly displays portrait videos centered with black bars
-- **Caching**: Detail page results are cached in memory to avoid repeated fetches
+- **Caching**: Detail pages and sprite probe results are cached in memory, so a dead host is never retried
 - **Infinite Scroll**: Works with dynamically loaded content
 - **Performance**: Frame updates are throttled using requestAnimationFrame
 
@@ -55,20 +55,45 @@ Click the extension icon in your browser toolbar to open the settings popup.
 
 ## Supported Providers
 
-| Provider | Grid | Frames | Priority |
-|----------|------|--------|----------|
-| cdnstream | 10x10 | 100 | Highest |
-| cdnvids | 10x10 | 100 | Highest |
-| morencius | 10x10 | 100 | Highest |
-| hgcloud | 10x10 | 100 | Highest |
-| short.icu | 6x5 | 30 | Medium |
-| lulustream | 4x4 | 16 | Lower |
+| Provider | Embed host(s) | Grid | Frames | Priority |
+|----------|---------------|------|--------|----------|
+| cdnstream | `cdnstream.top` | 10x10 | 100 | Highest |
+| cdnvids | `cdnvids.top` | 10x10 | 100 | Highest |
+| morencius | `morencius.com` | 10x10 | 100 | Highest |
+| hgcloud | `hgcloud.to` | 10x10 | 100 | Highest |
+| short.icu | `short.icu` | 6x5 | 30 | Medium |
+| lulustream | `lulustream.com`, `luluvids.top` | 4x4 | 16 | Lower |
+| abyssplayer | `abyssplayer.com` | 6x5 | 30 | Last resort |
 
-The extension automatically selects the provider with the most frames for the best preview experience.
+Every candidate is probed at once and the richest sprite that actually loads is
+shown, so a provider that is slow or down no longer costs you the preview.
 
-`bysezoxexe` (sprites served from `img-place.com`) is not supported: that host
-added anti-bot protection that blocks the requests. Videos whose only embed is
-`bysezoxexe` simply show no preview.
+`abyssplayer` is the most common embed on the site but very rarely has a sprite,
+so it is only requested once every other provider has come up empty. It shares
+short.icu's image host, `img.freeimagecdn.net`, which only serves images to
+requests refered from an abyssplayer host; `rules.json` sets that header for
+these requests, which is why the extension asks for `declarativeNetRequest`.
+
+### Unsupported providers
+
+- `bysezoxexe` (sprites on `img-place.com`): that host added anti-bot protection
+  that blocks the requests.
+- `k.upns.live`: no known sprite URL pattern.
+
+Videos whose only embeds are unsupported simply show no preview, as do videos the
+site publishes with empty `data-embed` attributes.
+
+### Missing sprites
+
+A provider may list a video it never generated a sprite for. Those URLs either
+404 or return a generic 320x240 placeholder; the placeholder is detected by its
+cell size and rejected, so it never renders as a garbled preview.
+
+When no provider yields a single frame, the overlay reads **"No preview
+available - this video has probably been removed"**. It is only shown when the
+detail page itself points at a dead video: either every player tab is empty, or
+the sources it lists have lost their sprites. If the page only carries providers
+the extension cannot read, it stays silent rather than blaming the video.
 
 ## Files
 
@@ -76,6 +101,7 @@ added anti-bot protection that blocks the requests. Videos whose only embed is
 - `background.js` - Service worker for cross-origin fetches
 - `contentScript.js` - Main logic for sprite extraction and trickplay
 - `contentStyles.css` - Overlay styling
+- `rules.json` - Referer rule for the referer-gated sprite host
 - `popup.html` - Settings popup UI
 - `popup.js` - Settings popup logic
 

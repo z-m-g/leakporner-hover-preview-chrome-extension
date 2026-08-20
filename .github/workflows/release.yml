@@ -42,6 +42,7 @@ jobs:
             background.js \
             contentScript.js \
             contentStyles.css \
+            rules.json \
             popup.html \
             popup.js \
             icon16.png \

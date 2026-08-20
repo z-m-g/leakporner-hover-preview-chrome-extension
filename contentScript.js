@@ -4,7 +4,8 @@
   // Provider configurations
   const PROVIDERS = {
     lulustream: {
-      pattern: /^https?:\/\/lulustream\.com\/e\/([a-zA-Z0-9]+)/,
+      // The service moved to luluvids.top; pages still mix both hostnames.
+      pattern: /^https?:\/\/(?:lulustream\.com|luluvids\.top)\/e\/([a-zA-Z0-9]+)/,
       getSpriteUrl: (id) => `https://img.lulucdn.com/${id}_xt.jpg`,
       cols: 4,
       rows: 4,
@@ -57,23 +58,51 @@
       previewCols: 2,
       previewRows: 2
     },
+    // img.freeimagecdn.net is referer-gated by Cloudflare: it answers 403 unless the
+    // Referer is an abyssplayer host, so rules.json rewrites that header for both
+    // providers below. Without it neither of them can ever load a sprite.
     shorticu: {
-      pattern: /^https?:\/\/short\.icu\/([a-zA-Z0-9]+)/,
+      pattern: /^https?:\/\/short\.icu\/([A-Za-z0-9_-]+)/,
       getSpriteUrl: (id) => `https://img.freeimagecdn.net/image/${id}/0.jpg`,
       cols: 6,
       rows: 5,
       frames: 30
+    },
+    // Same image backend as short.icu, and by far the most common embed on the site.
+    // Its sprites are missing far more often than they exist, so it is marked as a
+    // last resort: only requested once every other provider has come up empty.
+    // Note the id charset: abyssplayer ids contain '-' and '_'.
+    abyssplayer: {
+      pattern: /^https?:\/\/abyssplayer\.com\/([A-Za-z0-9_-]+)/,
+      getSpriteUrl: (id) => `https://img.freeimagecdn.net/image/${id}/0.jpg`,
+      cols: 6,
+      rows: 5,
+      frames: 30,
+      lastResort: true
     }
   };
+
+  // Some hosts answer a missing sprite with a generic 320x240 placeholder instead
+  // of a 404. Laid out as a grid it produces a garbled preview, so sheets whose
+  // cells are far too small to be real trickplay frames are rejected.
+  const MIN_FRAME_WIDTH = 48;
+  const MIN_FRAME_HEIGHT = 27;
+
+  // A sprite host that never answers must not hold the hover open forever.
+  const IMAGE_TIMEOUT_MS = 8000;
 
   // Cache for detail page sprite info: Map<detailUrl, Array of sprite candidates sorted by frames>
   const spriteCache = new Map();
 
+  // Probe results per sprite URL, so re-hovering never retries a dead host.
+  const probeCache = new Map();
+
   // Current hover state
   let currentArticle = null;
   let currentOverlay = null;
-  let currentAbortController = null;
   let rafId = null;
+  // Identifies the active hover: results from an abandoned one are discarded.
+  let hoverToken = 0;
 
   // User settings
   let maxFrames = 100;
@@ -105,6 +134,8 @@
           rows: config.rows,
           frames: config.frames
         };
+        if (config.lastResort) result.lastResort = true;
+
         // Add preview info for providers with deformed sprites
         if (config.getPreviewUrl) {
           result.previewUrl = config.getPreviewUrl(match[1]);
@@ -135,9 +166,10 @@
   }
 
   /**
-   * Fetch detail page and extract all sprite candidates sorted by frames (ascending)
+   * Fetch detail page and extract sprite candidates sorted by frames (ascending),
+   * along with what the page says about the video still having sources at all
    */
-  async function fetchAllSpriteCandidates(detailUrl) {
+  async function fetchPageInfo(detailUrl) {
     // Check cache first
     if (spriteCache.has(detailUrl)) {
       return spriteCache.get(detailUrl);
@@ -149,14 +181,17 @@
       const doc = parser.parseFromString(html, 'text/html');
 
       const embedSpans = doc.querySelectorAll('span.change-video[data-embed]');
-      if (!embedSpans.length) return [];
 
       const candidates = [];
       const seenProviders = new Set();
+      let embedCount = 0;
 
       for (const span of embedSpans) {
+        // The site keeps the player tabs but empties data-embed once a video loses
+        // all of its sources, which is the clearest signal that it is gone.
         const embedUrl = span.getAttribute('data-embed');
         if (!embedUrl) continue;
+        embedCount++;
 
         const spriteInfo = parseEmbedUrl(embedUrl);
         if (!spriteInfo) continue;
@@ -171,10 +206,12 @@
       // Sort by frames ascending (lowest first for progressive loading)
       candidates.sort((a, b) => a.frames - b.frames);
 
-      spriteCache.set(detailUrl, candidates);
-      return candidates;
+      const info = { candidates, embedCount, hasPlayers: embedSpans.length > 0 };
+      spriteCache.set(detailUrl, info);
+      return info;
     } catch {
-      return [];
+      // A failed fetch says nothing about the video, so report no result at all
+      return null;
     }
   }
 
@@ -253,8 +290,18 @@
   function loadSpriteImage(url) {
     return new Promise((resolve) => {
       const img = new Image();
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => resolve(null);
+      const timer = setTimeout(() => {
+        img.src = '';
+        resolve(null);
+      }, IMAGE_TIMEOUT_MS);
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        resolve(null);
+      };
       img.src = url;
     });
   }
@@ -329,6 +376,28 @@
     timeIndicator.textContent = `0:00 / ${formatTime(totalDuration)}`;
     container.appendChild(timeIndicator);
 
+    return container;
+  }
+
+  /**
+   * Build the overlay shown when no provider could supply a single frame
+   */
+  function createUnavailableOverlay(containerRect) {
+    const container = document.createElement('div');
+    container.className = 'lp-trickplay-container lp-trickplay-container--message';
+    container.style.width = `${containerRect.width}px`;
+    container.style.height = `${containerRect.height}px`;
+
+    const message = document.createElement('div');
+    message.className = 'lp-trickplay-message';
+    message.textContent = 'No preview available';
+
+    const detail = document.createElement('span');
+    detail.className = 'lp-trickplay-message-detail';
+    detail.textContent = 'this video has probably been removed';
+    message.appendChild(detail);
+
+    container.appendChild(message);
     return container;
   }
 
@@ -415,29 +484,54 @@
   }
 
   /**
+   * Reject sheets that are not usable sprites (missing, or placeholder images)
+   */
+  function isUsableSprite(spriteInfo, dimensions) {
+    if (!dimensions || !dimensions.width || !dimensions.height) return false;
+    return dimensions.width / spriteInfo.cols >= MIN_FRAME_WIDTH &&
+           dimensions.height / spriteInfo.rows >= MIN_FRAME_HEIGHT;
+  }
+
+  /**
+   * Load a sprite and its ratio reference, keeping the result for later hovers
+   */
+  function probeSprite(spriteInfo) {
+    if (probeCache.has(spriteInfo.spriteUrl)) {
+      return probeCache.get(spriteInfo.spriteUrl);
+    }
+
+    const probe = Promise.all([
+      loadSpriteImage(spriteInfo.spriteUrl),
+      loadSpriteRatioInfo(spriteInfo)
+    ]).then(([dimensions, ratioInfo]) => ({
+      usable: isUsableSprite(spriteInfo, dimensions),
+      ratioInfo
+    }));
+
+    probeCache.set(spriteInfo.spriteUrl, probe);
+    return probe;
+  }
+
+  /**
    * Handle mouse enter on article
    */
   async function handleMouseEnter(article) {
-    // Abort any previous fetch
-    if (currentAbortController) {
-      currentAbortController.abort();
-    }
-
     // Clean up previous overlay
     cleanupOverlay();
 
+    const token = ++hoverToken;
     currentArticle = article;
-    currentAbortController = new AbortController();
 
     const detailUrl = getDetailUrl(article);
     if (!detailUrl) return;
 
     // Get all sprite candidates sorted by frames (ascending)
-    const candidates = await fetchAllSpriteCandidates(detailUrl);
-    if (!candidates.length) return;
+    const info = await fetchPageInfo(detailUrl);
 
     // Check if we're still hovering the same article
-    if (currentArticle !== article) return;
+    if (token !== hoverToken || !info) return;
+
+    const { candidates, embedCount, hasPlayers } = info;
 
     const thumbnail = findThumbnail(article);
     const thumbnailRect = thumbnail.getBoundingClientRect();
@@ -460,54 +554,63 @@
 
     // Calculate overlay position relative to parent
     const parentRect = positionParent.getBoundingClientRect();
+    const articleRect = article.getBoundingClientRect();
     const totalDuration = getDuration(article);
 
-    // Try to find a working sprite, starting from lowest quality
-    let displayedSpriteIndex = -1;
-    let currentFrames = 0;
+    function place(container) {
+      container.style.left = `${thumbnailRect.left - parentRect.left}px`;
+      container.style.top = `${thumbnailRect.top - parentRect.top}px`;
+      positionParent.appendChild(container);
+      currentOverlay = container;
+    }
 
-    for (let i = 0; i < candidates.length; i++) {
-      const sprite = candidates[i];
+    // Probe a tier of candidates at once: a slow or dead provider no longer delays
+    // the others, and the first sprite to answer is shown right away.
+    let shownFrames = 0;
 
-      // Skip sprites if we already have enough frames for user's maxFrames setting
-      if (currentFrames >= maxFrames) break;
+    function probeTier(tier) {
+      return Promise.all(tier.map(async (sprite) => {
+        const { usable, ratioInfo } = await probeSprite(sprite);
 
-      // Preload sprite image AND get ratio info in parallel
-      const [spriteLoaded, ratioInfo] = await Promise.all([
-        loadSpriteImage(sprite.spriteUrl),
-        loadSpriteRatioInfo(sprite)
-      ]);
+        // Check if we're still hovering the same article
+        if (token !== hoverToken || !usable) return;
 
-      // Check if we're still hovering the same article
-      if (currentArticle !== article) return;
+        // A richer sprite already won the race
+        if (sprite.frames <= shownFrames) return;
+        shownFrames = sprite.frames;
 
-      // Skip if sprite failed to load (try next one)
-      if (!spriteLoaded) continue;
+        if (!currentOverlay) {
+          // First working sprite: create and show overlay
+          const container = createOverlay(sprite, thumbnailRect, totalDuration, ratioInfo);
 
-      // First working sprite: create and show overlay
-      if (displayedSpriteIndex === -1) {
-        const container = createOverlay(sprite, thumbnailRect, totalDuration, ratioInfo);
+          // Store sprite info and duration on container for mousemove handler
+          container._spriteInfo = sprite;
+          container._articleRect = articleRect;
+          container._totalDuration = totalDuration;
 
-        container.style.left = `${thumbnailRect.left - parentRect.left}px`;
-        container.style.top = `${thumbnailRect.top - parentRect.top}px`;
-
-        positionParent.appendChild(container);
-        currentOverlay = container;
-
-        // Store sprite info and duration on container for mousemove handler
-        container._spriteInfo = sprite;
-        container._articleRect = article.getBoundingClientRect();
-        container._totalDuration = totalDuration;
-
-        displayedSpriteIndex = i;
-        currentFrames = sprite.frames;
-      } else {
-        // Better sprite loaded: upgrade overlay
-        if (currentOverlay) {
+          place(container);
+        } else {
+          // Better sprite loaded: upgrade overlay
           upgradeOverlay(currentOverlay, sprite, ratioInfo);
-          currentFrames = sprite.frames;
         }
-      }
+      }));
+    }
+
+    // Last-resort providers rarely have a sprite at all, so they are only asked
+    // once every other provider has come up empty.
+    await probeTier(candidates.filter((sprite) => !sprite.lastResort));
+
+    const lastResort = candidates.filter((sprite) => sprite.lastResort);
+    if (!currentOverlay && token === hoverToken && lastResort.length) {
+      await probeTier(lastResort);
+    }
+
+    // Nothing anywhere. Say so only when the page itself points at a dead video:
+    // either every player slot is empty, or the sources it does list have lost
+    // their sprites. Stay silent when we simply cannot read the providers listed.
+    if (currentOverlay || token !== hoverToken) return;
+    if ((hasPlayers && embedCount === 0) || candidates.length) {
+      place(createUnavailableOverlay(thumbnailRect));
     }
   }
 
@@ -539,6 +642,9 @@
    * Clean up overlay
    */
   function cleanupOverlay() {
+    // Invalidate in-flight probes so a late result cannot resurrect the overlay
+    hoverToken++;
+
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = null;
@@ -556,10 +662,6 @@
    * Handle mouse leave
    */
   function handleMouseLeave() {
-    if (currentAbortController) {
-      currentAbortController.abort();
-      currentAbortController = null;
-    }
     cleanupOverlay();
   }
 
