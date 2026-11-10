@@ -167,7 +167,7 @@ EDGE CASES
 
 ---
 
-CURRENT IMPLEMENTATION STATUS (v1.3.1)
+CURRENT IMPLEMENTATION STATUS (v1.3.2)
 
 Files created:
 - manifest.json (MV3 with service worker)
@@ -243,21 +243,26 @@ SUPPORTED PROVIDERS:
 - lulustream (4x4 = 16 frames) - lower priority
   - Embed hosts: lulustream.com/e/<id> AND luluvids.top/e/<id>
     The service moved to luluvids.top; pages still mix both hostnames.
-  - Sprite: img.lulucdn.com/<id>_xt.jpg, not deformed (1200px on the long side)
-  - STORAGE FALLBACK (v1.3.1): on 2026-11-10 img.lulucdn.com went NXDOMAIN on its
-    own authoritative servers while the player (poster, og:image) still pointed
-    at it. The same sheet is served by the video storage host:
+  - Sprite: NOT derivable from the embed id. Never request img.lulucdn.com: it
+    went NXDOMAIN on its own authoritative servers on 2026-11-10 and lulu then
+    repointed its player poster at the storage host. The sheet (not deformed,
+    1200px on the long side) is served by the video storage host:
       video:  https://<sub>.tnmr.org/v/<dirA>/<dirB>/<code>_h/h.mp4?...
       sprite: https://<sub>.tnmr.org/i/<dirA>/<dirB>/<code>_xt.jpg  (200, no referer needed)
-    <sub> changes per video and <code> is the storage file code, which can differ
-    from the embed id (embed 2qpglxqtad16 -> code 92lfyj35i1bx), so the URL cannot
-    be built from the id: the embed page must be fetched and its p,a,c,k,e,d
-    packed jwplayer config expanded as text (unpackScripts, never executed).
+    <sub> changes per video and is MIXED CASE (5t8RYSDVRRsc.tnmr.org): a
+    lowercase-only host pattern silently drops those videos (bug in v1.3.1).
+    <code> is the storage file code, which can differ from the embed id (embed
+    2qpglxqtad16 -> code 92lfyj35i1bx).
+  - So the embed page is fetched and its p,a,c,k,e,d packed jwplayer config is
+    expanded as text (unpackScripts, never executed). extractStorageSpriteUrl
+    reads the `image:` poster when it already names the storage host, and
+    otherwise derives the URL from the `sources[].file` video URL (pages fetched
+    earlier that same day still named img.lulucdn.com as poster).
   - The embed page is always fetched from luluvids.top (host permission):
     lulustream.com/e/<id> 301-redirects to luluvdo.com, which does not resolve.
-  - The fallback runs after the regular tier and only if it would beat the sprite
+  - This lookup runs after the regular tier and only if it would beat the sprite
     already shown, so a video with a working 100-frame sprite never pays for it.
-    Results are cached per embed page URL (fallbackCache).
+    Results are cached per embed page URL (pageSpriteCache).
 
 - abyssplayer (6x5 = 30 frames) - LAST RESORT, only probed when everything else
   came up empty (see lastResort in PROVIDERS)

@@ -6,12 +6,11 @@
     lulustream: {
       // The service moved to luluvids.top; pages still mix both hostnames.
       pattern: /^https?:\/\/(?:lulustream\.com|luluvids\.top)\/e\/([a-zA-Z0-9]+)/,
-      getSpriteUrl: (id) => `https://img.lulucdn.com/${id}_xt.jpg`,
-      // img.lulucdn.com dropped out of DNS while the player kept pointing at it.
-      // The same sheet still lives on the video storage host, whose address is
-      // only known from the embed page. lulustream.com redirects to a dead
+      // No sprite URL can be built from the id any more: img.lulucdn.com is gone
+      // from DNS and the sheet now lives on the video storage host, whose address
+      // is only given by the embed page. lulustream.com redirects to a dead
       // domain, so that page is always read from luluvids.top.
-      getFallbackPageUrl: (id) => `https://luluvids.top/e/${id}`,
+      getSpritePageUrl: (id) => `https://luluvids.top/e/${id}`,
       cols: 4,
       rows: 4,
       frames: 16
@@ -102,8 +101,8 @@
   // Probe results per sprite URL, so re-hovering never retries a dead host.
   const probeCache = new Map();
 
-  // Fallback probe results per embed page URL, so that page is fetched only once.
-  const fallbackCache = new Map();
+  // Probe results per embed page URL, so that page is fetched only once.
+  const pageSpriteCache = new Map();
 
   // Current hover state
   let currentArticle = null;
@@ -137,14 +136,15 @@
         const result = {
           provider: providerName,
           id: match[1],
-          spriteUrl: config.getSpriteUrl(match[1]),
+          // Absent for providers whose sprite must be looked up (spritePageUrl)
+          spriteUrl: config.getSpriteUrl ? config.getSpriteUrl(match[1]) : null,
           cols: config.cols,
           rows: config.rows,
           frames: config.frames
         };
         if (config.lastResort) result.lastResort = true;
-        if (config.getFallbackPageUrl) {
-          result.fallbackPageUrl = config.getFallbackPageUrl(match[1]);
+        if (config.getSpritePageUrl) {
+          result.spritePageUrl = config.getSpritePageUrl(match[1]);
         }
 
         // Add preview info for providers with deformed sprites
@@ -543,28 +543,32 @@
   }
 
   /**
-   * Derive the sprite URL from the video source listed in a lulu embed page.
-   * The video sits at <host>/<kind>/<dir>/<dir>/<code>_<quality>/..., and its
-   * sheet at <host>/i/<dir>/<dir>/<code>_xt.jpg. <code> is the storage file code,
-   * which is not always the id used in the embed URL.
+   * Find the sprite URL in a lulu embed page. Recent pages name it directly as
+   * the player poster. Older ones still name the dead image host there, so the
+   * URL is derived from the video source instead: the video sits at
+   * <host>/<kind>/<dir>/<dir>/<code>_<quality>/... and its sheet at
+   * <host>/i/<dir>/<dir>/<code>_xt.jpg. <code> is the storage file code, which
+   * is not always the id used in the embed URL. Storage host names are mixed case.
    */
   function extractStorageSpriteUrl(html) {
-    const source = /file:\s*["'](https:\/\/[a-z0-9.-]+)\/[a-z0-9]+\/(\d+)\/(\d+)\/([a-zA-Z0-9]+)_/;
-    const match = unpackScripts(html).match(source) || html.match(source);
+    const text = unpackScripts(html) + html;
+    const location = '(https:\\/\\/[a-zA-Z0-9.-]+)\\/[a-z0-9]+\\/(\\d+)\\/(\\d+)\\/([a-zA-Z0-9]+)_';
+    const match = text.match(new RegExp(`image:\\s*["']${location}xt\\.jpg["']`)) ||
+                  text.match(new RegExp(`file:\\s*["']${location}`));
     if (!match) return null;
     const [, host, dirA, dirB, code] = match;
     return `${host}/i/${dirA}/${dirB}/${code}_xt.jpg`;
   }
 
   /**
-   * Probe the sprite a provider keeps on its storage host, for when the usual
-   * image host is gone. Resolves with the same shape as probeSprite plus the
-   * sprite to display, since its URL differs from the candidate's.
+   * Probe a sprite whose URL has to be read from the provider's embed page.
+   * Resolves with the same shape as probeSprite plus the sprite to display,
+   * since the candidate itself carries no URL.
    */
-  function probeFallbackSprite(spriteInfo) {
-    const pageUrl = spriteInfo.fallbackPageUrl;
-    if (fallbackCache.has(pageUrl)) {
-      return fallbackCache.get(pageUrl);
+  function probePageSprite(spriteInfo) {
+    const pageUrl = spriteInfo.spritePageUrl;
+    if (pageSpriteCache.has(pageUrl)) {
+      return pageSpriteCache.get(pageUrl);
     }
 
     const nothing = { usable: false, ratioInfo: null, sprite: spriteInfo };
@@ -577,7 +581,7 @@
       })
       .catch(() => nothing);
 
-    fallbackCache.set(pageUrl, probe);
+    pageSpriteCache.set(pageUrl, probe);
     return probe;
   }
 
@@ -667,16 +671,16 @@
 
     // Last-resort providers rarely have a sprite at all, so they are only asked
     // once every other provider has come up empty.
-    await probeTier(candidates.filter((sprite) => !sprite.lastResort));
+    await probeTier(candidates.filter((sprite) => sprite.spriteUrl && !sprite.lastResort));
 
-    // A provider whose image host is down may still serve its sheet from the
-    // storage host. Finding it costs an extra page fetch, so it is only looked
-    // up when that would beat what is already on screen.
-    const rescuable = candidates.filter(
-      (sprite) => sprite.fallbackPageUrl && sprite.frames > shownFrames
+    // Some sprites can only be located by reading the provider's embed page.
+    // That costs an extra page fetch, so it is only done when the result would
+    // beat what is already on screen.
+    const lookedUp = candidates.filter(
+      (sprite) => sprite.spritePageUrl && sprite.frames > shownFrames
     );
-    if (token === hoverToken && rescuable.length) {
-      await probeTier(rescuable, probeFallbackSprite);
+    if (token === hoverToken && lookedUp.length) {
+      await probeTier(lookedUp, probePageSprite);
     }
 
     const lastResort = candidates.filter((sprite) => sprite.lastResort);
