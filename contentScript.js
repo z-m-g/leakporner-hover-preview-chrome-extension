@@ -7,6 +7,11 @@
       // The service moved to luluvids.top; pages still mix both hostnames.
       pattern: /^https?:\/\/(?:lulustream\.com|luluvids\.top)\/e\/([a-zA-Z0-9]+)/,
       getSpriteUrl: (id) => `https://img.lulucdn.com/${id}_xt.jpg`,
+      // img.lulucdn.com dropped out of DNS while the player kept pointing at it.
+      // The same sheet still lives on the video storage host, whose address is
+      // only known from the embed page. lulustream.com redirects to a dead
+      // domain, so that page is always read from luluvids.top.
+      getFallbackPageUrl: (id) => `https://luluvids.top/e/${id}`,
       cols: 4,
       rows: 4,
       frames: 16
@@ -97,6 +102,9 @@
   // Probe results per sprite URL, so re-hovering never retries a dead host.
   const probeCache = new Map();
 
+  // Fallback probe results per embed page URL, so that page is fetched only once.
+  const fallbackCache = new Map();
+
   // Current hover state
   let currentArticle = null;
   let currentOverlay = null;
@@ -135,6 +143,9 @@
           frames: config.frames
         };
         if (config.lastResort) result.lastResort = true;
+        if (config.getFallbackPageUrl) {
+          result.fallbackPageUrl = config.getFallbackPageUrl(match[1]);
+        }
 
         // Add preview info for providers with deformed sprites
         if (config.getPreviewUrl) {
@@ -513,6 +524,64 @@
   }
 
   /**
+   * Expand the "p,a,c,k,e,d" packed scripts of an embed page back to plain text.
+   * The payload is only ever read as text, never executed.
+   */
+  function unpackScripts(html) {
+    const packed = /\}\('(.*?)',(\d+),\d+,'([^']*)'\.split\('\|'\)/gs;
+    let text = '';
+    for (const [, payload, radix, dictionary] of html.matchAll(packed)) {
+      const base = Number(radix);
+      const words = dictionary.split('|');
+      text += payload.replace(/\b\w+\b/g, (token) => {
+        const index = parseInt(token, base);
+        // Same rule as the packer: only exact encodings of an index are replaced
+        return index.toString(base) === token && words[index] ? words[index] : token;
+      }) + '\n';
+    }
+    return text;
+  }
+
+  /**
+   * Derive the sprite URL from the video source listed in a lulu embed page.
+   * The video sits at <host>/<kind>/<dir>/<dir>/<code>_<quality>/..., and its
+   * sheet at <host>/i/<dir>/<dir>/<code>_xt.jpg. <code> is the storage file code,
+   * which is not always the id used in the embed URL.
+   */
+  function extractStorageSpriteUrl(html) {
+    const source = /file:\s*["'](https:\/\/[a-z0-9.-]+)\/[a-z0-9]+\/(\d+)\/(\d+)\/([a-zA-Z0-9]+)_/;
+    const match = unpackScripts(html).match(source) || html.match(source);
+    if (!match) return null;
+    const [, host, dirA, dirB, code] = match;
+    return `${host}/i/${dirA}/${dirB}/${code}_xt.jpg`;
+  }
+
+  /**
+   * Probe the sprite a provider keeps on its storage host, for when the usual
+   * image host is gone. Resolves with the same shape as probeSprite plus the
+   * sprite to display, since its URL differs from the candidate's.
+   */
+  function probeFallbackSprite(spriteInfo) {
+    const pageUrl = spriteInfo.fallbackPageUrl;
+    if (fallbackCache.has(pageUrl)) {
+      return fallbackCache.get(pageUrl);
+    }
+
+    const nothing = { usable: false, ratioInfo: null, sprite: spriteInfo };
+    const probe = fetchViaBackground(pageUrl)
+      .then(async (html) => {
+        const spriteUrl = extractStorageSpriteUrl(html);
+        if (!spriteUrl) return nothing;
+        const sprite = { ...spriteInfo, spriteUrl };
+        return { ...(await probeSprite(sprite)), sprite };
+      })
+      .catch(() => nothing);
+
+    fallbackCache.set(pageUrl, probe);
+    return probe;
+  }
+
+  /**
    * Handle mouse enter on article
    */
   async function handleMouseEnter(article) {
@@ -568,9 +637,9 @@
     // the others, and the first sprite to answer is shown right away.
     let shownFrames = 0;
 
-    function probeTier(tier) {
-      return Promise.all(tier.map(async (sprite) => {
-        const { usable, ratioInfo } = await probeSprite(sprite);
+    function probeTier(tier, probe = probeSprite) {
+      return Promise.all(tier.map(async (candidate) => {
+        const { usable, ratioInfo, sprite = candidate } = await probe(candidate);
 
         // Check if we're still hovering the same article
         if (token !== hoverToken || !usable) return;
@@ -599,6 +668,16 @@
     // Last-resort providers rarely have a sprite at all, so they are only asked
     // once every other provider has come up empty.
     await probeTier(candidates.filter((sprite) => !sprite.lastResort));
+
+    // A provider whose image host is down may still serve its sheet from the
+    // storage host. Finding it costs an extra page fetch, so it is only looked
+    // up when that would beat what is already on screen.
+    const rescuable = candidates.filter(
+      (sprite) => sprite.fallbackPageUrl && sprite.frames > shownFrames
+    );
+    if (token === hoverToken && rescuable.length) {
+      await probeTier(rescuable, probeFallbackSprite);
+    }
 
     const lastResort = candidates.filter((sprite) => sprite.lastResort);
     if (!currentOverlay && token === hoverToken && lastResort.length) {

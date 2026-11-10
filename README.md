@@ -68,6 +68,11 @@ Click the extension icon in your browser toolbar to open the settings popup.
 Every candidate is probed at once and the richest sprite that actually loads is
 shown, so a provider that is slow or down no longer costs you the preview.
 
+`lulustream` sprites normally come from `img.lulucdn.com`. When that host does
+not answer and nothing better is available, the extension reads the embed page
+on `luluvids.top` to locate the same sheet on the video storage host, which is
+why it asks for access to `luluvids.top`.
+
 `abyssplayer` is the most common embed on the site but very rarely has a sprite,
 so it is only requested once every other provider has come up empty. It shares
 short.icu's image host, `img.freeimagecdn.net`, which only serves images to
