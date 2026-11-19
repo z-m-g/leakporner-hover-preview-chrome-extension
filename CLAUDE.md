@@ -167,7 +167,7 @@ EDGE CASES
 
 ---
 
-CURRENT IMPLEMENTATION STATUS (v1.3.2)
+CURRENT IMPLEMENTATION STATUS (v1.3.3)
 
 Files created:
 - manifest.json (MV3 with service worker)
@@ -189,6 +189,25 @@ Message flow:
 3. background.js fetches the URL (bypasses CORS due to host_permissions)
 4. background.js returns {success: true, html} or {success: false, error}
 5. contentScript.js parses HTML and extracts sprite info
+
+EMBED LOOKUP (v1.3.3) - SUPERSEDES the `span.change-video[data-embed]` rule above:
+Since 2026-11 detail pages (now on tv.leakporner.com) no longer contain the embed
+URLs. Player tabs are `<span class="change-video" data-player="player1">` and the
+site's own inline player script (`#kau-v-script`) trades each key for its embed:
+  POST <kauCfg.api>   (https://tv.leakporner.com/wp-json/kau/v1/stream)
+  headers: Content-Type: application/json, X-WP-Nonce: <kauCfg.nonce>
+  body:    {"id": <#kauvideo data-post-id>, "p": "player1"}
+  answer:  {"u": "<embed url>"}   (missing/empty u = tab without a source)
+`kauCfg={"api":...,"nonce":...}` is an inline object in the detail page.
+resolveEmbedUrls (contentScript.js) does the same through the service worker
+({type: 'stream'} message; background.js only posts to leakporner hosts), one
+request per tab, in parallel, cached with the rest of the page info. Tabs that
+still carry data-embed are read directly. If the config is missing or every
+request fails, the page counts as unreadable (no overlay, nothing cached).
+The request/answer shape above was read from the site's script, NOT observed:
+the endpoint could not be called from the dev sandbox. Check a real answer in
+the browser's Network tab before trusting it further.
+Listing thumbnails moved to 58img.top; that is unrelated to the previews.
 
 SPRITE SELECTION:
 All candidates are probed concurrently (sprite image + ratio reference). The
@@ -253,6 +272,11 @@ SUPPORTED PROVIDERS:
     lowercase-only host pattern silently drops those videos (bug in v1.3.1).
     <code> is the storage file code, which can differ from the embed id (embed
     2qpglxqtad16 -> code 92lfyj35i1bx).
+  - WHITE CELL BORDER: every cell of the _xt.jpg sheet has a 1px white border
+    (measured: fully white columns 299-300, 599-600, 899-900 and 0 / 1199 on a
+    1200px sheet, plus one pixel of JPEG bleed). cellInset: 2 clips it off
+    (applyCellInset: clip-path + compensating scale). Do not reuse this sheet as
+    a frame source without the inset.
   - So the embed page is fetched and its p,a,c,k,e,d packed jwplayer config is
     expanded as text (unpackScripts, never executed). extractStorageSpriteUrl
     reads the `image:` poster when it already names the storage host, and

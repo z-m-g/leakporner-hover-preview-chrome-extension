@@ -86,7 +86,12 @@ these requests, which is why the extension asks for `declarativeNetRequest`.
 - `k.upns.live`: no known sprite URL pattern.
 
 Videos whose only embeds are unsupported simply show no preview, as do videos the
-site publishes with empty `data-embed` attributes.
+site publishes with player tabs that have no source.
+
+The site does not write the embed URLs in its pages: each player tab only holds a
+key, which the extension trades for the embed URL at the site's own stream
+endpoint, exactly as the site's player does. That is one extra request per player
+tab the first time a video is hovered.
 
 ### Missing sprites
 

@@ -11,6 +11,9 @@
       // is only given by the embed page. lulustream.com redirects to a dead
       // domain, so that page is always read from luluvids.top.
       getSpritePageUrl: (id) => `https://luluvids.top/e/${id}`,
+      // Every cell of this sheet is drawn with a 1px white border, which JPEG
+      // compression bleeds one pixel further in.
+      cellInset: 2,
       cols: 4,
       rows: 4,
       frames: 16
@@ -143,6 +146,7 @@
           frames: config.frames
         };
         if (config.lastResort) result.lastResort = true;
+        if (config.cellInset) result.cellInset = config.cellInset;
         if (config.getSpritePageUrl) {
           result.spritePageUrl = config.getSpritePageUrl(match[1]);
         }
@@ -177,6 +181,63 @@
   }
 
   /**
+   * Ask the site's stream endpoint which embed a player tab points at
+   */
+  function fetchStreamViaBackground(api, nonce, postId, player) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: 'stream', api, nonce, postId, player }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (response && response.success) {
+          resolve(response.url);
+        } else {
+          reject(new Error(response?.error || 'Unknown error'));
+        }
+      });
+    });
+  }
+
+  /**
+   * List the embed URL behind every player tab of a detail page, '' for a tab
+   * that has no source. Returns null when the sources could not be read.
+   *
+   * The site no longer writes the embeds in the page: each tab only carries a
+   * player key, and its own player script trades that key for the embed URL at
+   * the endpoint named in the inline `kauCfg` object. Tabs that still carry a
+   * data-embed attribute (the former markup) are read directly.
+   */
+  async function resolveEmbedUrls(doc, html, embedSpans) {
+    const spans = Array.from(embedSpans);
+    const inline = spans.filter((span) => span.hasAttribute('data-embed'));
+    if (inline.length) {
+      return inline.map((span) => span.getAttribute('data-embed') || '');
+    }
+
+    const players = spans.map((span) => span.getAttribute('data-player')).filter(Boolean);
+    if (!players.length) return [];
+
+    const postId = doc.querySelector('#kauvideo[data-post-id]')?.getAttribute('data-post-id');
+    const configSource = html.match(/kauCfg\s*=\s*(\{[^;]*?\})\s*;/);
+    if (!postId || !configSource) return null;
+
+    let config;
+    try {
+      config = JSON.parse(configSource[1]);
+    } catch {
+      return null;
+    }
+    if (!config.api || !config.nonce) return null;
+
+    const answers = await Promise.all(players.map(
+      (player) => fetchStreamViaBackground(config.api, config.nonce, postId, player).catch(() => null)
+    ));
+
+    // A tab whose request failed is unknown, not empty
+    const known = answers.filter((url) => url !== null);
+    return known.length ? known : null;
+  }
+
+  /**
    * Fetch detail page and extract sprite candidates sorted by frames (ascending),
    * along with what the page says about the video still having sources at all
    */
@@ -191,16 +252,19 @@
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      const embedSpans = doc.querySelectorAll('span.change-video[data-embed]');
+      const embedSpans = doc.querySelectorAll('span.change-video');
+      const embedUrls = await resolveEmbedUrls(doc, html, embedSpans);
+
+      // The sources could not be read at all, which says nothing about the video
+      if (!embedUrls) return null;
 
       const candidates = [];
       const seenProviders = new Set();
       let embedCount = 0;
 
-      for (const span of embedSpans) {
-        // The site keeps the player tabs but empties data-embed once a video loses
-        // all of its sources, which is the clearest signal that it is gone.
-        const embedUrl = span.getAttribute('data-embed');
+      for (const embedUrl of embedUrls) {
+        // The site keeps the player tabs but leaves them without a source once a
+        // video loses all of them, which is the clearest signal that it is gone.
         if (!embedUrl) continue;
         embedCount++;
 
@@ -353,6 +417,24 @@
   }
 
   /**
+   * Hide the border some sheets draw around each cell: clip `cellInset` sheet
+   * pixels off every side of the frame, then scale what is left back up so it
+   * still fills the same box. Needs the sheet's real size to convert the inset.
+   */
+  function applyCellInset(overlay, spriteInfo, spriteDimensions) {
+    if (!spriteInfo.cellInset || !spriteDimensions) {
+      overlay.style.clipPath = '';
+      overlay.style.transform = '';
+      return;
+    }
+
+    const insetX = spriteInfo.cellInset / (spriteDimensions.width / spriteInfo.cols);
+    const insetY = spriteInfo.cellInset / (spriteDimensions.height / spriteInfo.rows);
+    overlay.style.clipPath = `inset(${insetY * 100}% ${insetX * 100}%)`;
+    overlay.style.transform = `scale(${1 / (1 - 2 * insetX)}, ${1 / (1 - 2 * insetY)})`;
+  }
+
+  /**
    * Create overlay element
    */
   function createOverlay(spriteInfo, containerRect, totalDuration, spriteDimensions) {
@@ -378,6 +460,7 @@
     overlay.style.backgroundSize = `${spriteInfo.cols * 100}% ${spriteInfo.rows * 100}%`;
     overlay.style.backgroundPosition = '0% 0%';
     overlay.style.backgroundRepeat = 'no-repeat';
+    applyCellInset(overlay, spriteInfo, spriteDimensions);
 
     container.appendChild(overlay);
 
@@ -466,6 +549,7 @@
     overlay.style.top = `${dims.offsetY}px`;
     overlay.style.backgroundImage = `url(${newSpriteInfo.spriteUrl})`;
     overlay.style.backgroundSize = `${newSpriteInfo.cols * 100}% ${newSpriteInfo.rows * 100}%`;
+    applyCellInset(overlay, newSpriteInfo, frameDimensions);
 
     // Update stored sprite info
     container._spriteInfo = newSpriteInfo;
